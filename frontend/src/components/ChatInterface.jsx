@@ -62,7 +62,7 @@ export default function ChatInterface({
               {msg.role === 'user' ? (
                 <div className="user-message">
                   <div className="message-label">You</div>
-                  <div className="message-content">
+                  <div className="message-content" dir="auto">
                     <div className="markdown-content">
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
@@ -124,6 +124,7 @@ export default function ChatInterface({
         <form className="input-form" onSubmit={handleSubmit}>
           <textarea
             className="message-input"
+            dir="auto"
             placeholder="Ask your question... (Shift+Enter for new line, Enter to send)"
             value={input}
             onChange={(e) => setInput(e.target.value)}

@@ -1,73 +1,78 @@
 import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
+import Login from './components/Login';
 import { api } from './api';
 import './App.css';
 
 function App() {
-  const [conversations, setConversations] = useState([]);
-  const [currentConversationId, setCurrentConversationId] = useState(null);
-  const [currentConversation, setCurrentConversation] = useState(null);
+  // Auth state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  // Conversation state (in-memory only, no persistence)
+  const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load conversations on mount
+  // Model selection state
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedCouncilModels, setSelectedCouncilModels] = useState([]);
+  const [selectedChairmanModel, setSelectedChairmanModel] = useState('');
+
+  const loadModels = async () => {
+    try {
+      const data = await api.getModels();
+      setAvailableModels(data.available_models);
+      setSelectedCouncilModels(data.default_council_models);
+      setSelectedChairmanModel(data.default_chairman_model);
+    } catch (error) {
+      console.error('Failed to load models:', error);
+      if (error.message === 'Unauthorized') {
+        api.clearAuth();
+        setIsAuthenticated(false);
+        setMessages([]);
+      }
+    }
+  };
+
+  // Check if already authenticated on mount
   useEffect(() => {
-    loadConversations();
+    const checkExistingAuth = async () => {
+      if (api.hasStoredAuth()) {
+        const isValid = await api.checkAuth();
+        if (isValid) {
+          setIsAuthenticated(true);
+          loadModels();
+        } else {
+          api.clearAuth();
+        }
+      }
+      setIsCheckingAuth(false);
+    };
+    checkExistingAuth();
   }, []);
 
-  // Load conversation details when selected
-  useEffect(() => {
-    if (currentConversationId) {
-      loadConversation(currentConversationId);
-    }
-  }, [currentConversationId]);
-
-  const loadConversations = async () => {
-    try {
-      const convs = await api.listConversations();
-      setConversations(convs);
-    } catch (error) {
-      console.error('Failed to load conversations:', error);
-    }
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+    loadModels();
   };
 
-  const loadConversation = async (id) => {
-    try {
-      const conv = await api.getConversation(id);
-      setCurrentConversation(conv);
-    } catch (error) {
-      console.error('Failed to load conversation:', error);
-    }
+  const handleLogout = () => {
+    api.clearAuth();
+    setIsAuthenticated(false);
+    setMessages([]);
   };
 
-  const handleNewConversation = async () => {
-    try {
-      const newConv = await api.createConversation();
-      setConversations([
-        { id: newConv.id, created_at: newConv.created_at, message_count: 0 },
-        ...conversations,
-      ]);
-      setCurrentConversationId(newConv.id);
-    } catch (error) {
-      console.error('Failed to create conversation:', error);
-    }
-  };
-
-  const handleSelectConversation = (id) => {
-    setCurrentConversationId(id);
+  const handleNewConversation = () => {
+    setMessages([]);
   };
 
   const handleSendMessage = async (content) => {
-    if (!currentConversationId) return;
-
     setIsLoading(true);
     try {
-      // Optimistically add user message to UI
+      // Add user message to UI
       const userMessage = { role: 'user', content };
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: [...prev.messages, userMessage],
-      }));
+      setMessages((prev) => [...prev, userMessage]);
 
       // Create a partial assistant message that will be updated progressively
       const assistantMessage = {
@@ -84,85 +89,80 @@ function App() {
       };
 
       // Add the partial assistant message
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: [...prev.messages, assistantMessage],
-      }));
+      setMessages((prev) => [...prev, assistantMessage]);
 
-      // Send message with streaming
-      await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
+      // Run council with streaming
+      const modelConfig = {
+        councilModels: selectedCouncilModels,
+        chairmanModel: selectedChairmanModel,
+      };
+
+      await api.runCouncilStream(content, modelConfig, (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
+            setMessages((prev) => {
+              const messages = [...prev];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage1 = true;
-              return { ...prev, messages };
+              return messages;
             });
             break;
 
           case 'stage1_complete':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
+            setMessages((prev) => {
+              const messages = [...prev];
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage1 = event.data;
               lastMsg.loading.stage1 = false;
-              return { ...prev, messages };
+              return messages;
             });
             break;
 
           case 'stage2_start':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
+            setMessages((prev) => {
+              const messages = [...prev];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage2 = true;
-              return { ...prev, messages };
+              return messages;
             });
             break;
 
           case 'stage2_complete':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
+            setMessages((prev) => {
+              const messages = [...prev];
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage2 = event.data;
               lastMsg.metadata = event.metadata;
               lastMsg.loading.stage2 = false;
-              return { ...prev, messages };
+              return messages;
             });
             break;
 
           case 'stage3_start':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
+            setMessages((prev) => {
+              const messages = [...prev];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage3 = true;
-              return { ...prev, messages };
+              return messages;
             });
             break;
 
           case 'stage3_complete':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
+            setMessages((prev) => {
+              const messages = [...prev];
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage3 = event.data;
               lastMsg.loading.stage3 = false;
-              return { ...prev, messages };
+              return messages;
             });
             break;
 
-          case 'title_complete':
-            // Reload conversations to get updated title
-            loadConversations();
-            break;
-
           case 'complete':
-            // Stream complete, reload conversations list
-            loadConversations();
             setIsLoading(false);
             break;
 
           case 'error':
-            console.error('Stream error:', event.message);
+            console.error('Stream error:', event.message || event.data?.message);
             setIsLoading(false);
             break;
 
@@ -172,22 +172,49 @@ function App() {
       });
     } catch (error) {
       console.error('Failed to send message:', error);
+      if (error.message === 'Unauthorized') {
+        handleLogout();
+        return;
+      }
       // Remove optimistic messages on error
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: prev.messages.slice(0, -2),
-      }));
+      setMessages((prev) => prev.slice(0, -2));
       setIsLoading(false);
     }
+  };
+
+  // Show loading while checking auth
+  if (isCheckingAuth) {
+    return (
+      <div className="app loading-screen">
+        <div>Loading...</div>
+      </div>
+    );
+  }
+
+  // Show login if not authenticated
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  // Create a conversation object for ChatInterface compatibility
+  const currentConversation = {
+    id: 'session',
+    messages: messages,
   };
 
   return (
     <div className="app">
       <Sidebar
-        conversations={conversations}
-        currentConversationId={currentConversationId}
-        onSelectConversation={handleSelectConversation}
+        conversations={[]}
+        currentConversationId="session"
+        onSelectConversation={() => {}}
         onNewConversation={handleNewConversation}
+        availableModels={availableModels}
+        selectedCouncilModels={selectedCouncilModels}
+        selectedChairmanModel={selectedChairmanModel}
+        onCouncilModelsChange={setSelectedCouncilModels}
+        onChairmanModelChange={setSelectedChairmanModel}
+        onLogout={handleLogout}
       />
       <ChatInterface
         conversation={currentConversation}

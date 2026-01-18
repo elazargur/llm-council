@@ -13,3 +13,10 @@
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
 }
+
+.app.loading-screen {
+  justify-content: center;
+  align-items: center;
+  background: #1a1a2e;
+  color: #e8e8e8;
+}

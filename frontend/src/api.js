@@ -1,92 +1,67 @@
 /**
  * API client for the LLM Council backend.
+ * Uses relative paths for Vercel deployment.
  */
 
-const API_BASE = 'http://localhost:8001';
+// Get auth credentials from sessionStorage
+function getAuthHeaders() {
+  const password = sessionStorage.getItem('auth_password') || '';
+  const email = sessionStorage.getItem('auth_email') || '';
+  return {
+    'X-Auth-Password': password,
+    'X-Auth-Email': email,
+  };
+}
 
 export const api = {
   /**
-   * List all conversations.
+   * Get available models and defaults.
    */
-  async listConversations() {
-    const response = await fetch(`${API_BASE}/api/conversations`);
-    if (!response.ok) {
-      throw new Error('Failed to list conversations');
-    }
-    return response.json();
-  },
-
-  /**
-   * Create a new conversation.
-   */
-  async createConversation() {
-    const response = await fetch(`${API_BASE}/api/conversations`, {
-      method: 'POST',
+  async getModels() {
+    const response = await fetch('/api/models', {
       headers: {
-        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
       },
-      body: JSON.stringify({}),
     });
     if (!response.ok) {
-      throw new Error('Failed to create conversation');
-    }
-    return response.json();
-  },
-
-  /**
-   * Get a specific conversation.
-   */
-  async getConversation(conversationId) {
-    const response = await fetch(
-      `${API_BASE}/api/conversations/${conversationId}`
-    );
-    if (!response.ok) {
-      throw new Error('Failed to get conversation');
-    }
-    return response.json();
-  },
-
-  /**
-   * Send a message in a conversation.
-   */
-  async sendMessage(conversationId, content) {
-    const response = await fetch(
-      `${API_BASE}/api/conversations/${conversationId}/message`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ content }),
+      if (response.status === 401) {
+        throw new Error('Unauthorized');
       }
-    );
-    if (!response.ok) {
-      throw new Error('Failed to send message');
+      throw new Error('Failed to get models');
     }
     return response.json();
   },
 
   /**
-   * Send a message and receive streaming updates.
-   * @param {string} conversationId - The conversation ID
-   * @param {string} content - The message content
+   * Run the council with streaming updates.
+   * @param {string} content - The user's query
+   * @param {object} modelConfig - Model configuration { councilModels, chairmanModel }
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, onEvent) {
-    const response = await fetch(
-      `${API_BASE}/api/conversations/${conversationId}/message/stream`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ content }),
-      }
-    );
+  async runCouncilStream(content, modelConfig, onEvent) {
+    const body = { content };
+    if (modelConfig?.councilModels?.length > 0) {
+      body.council_models = modelConfig.councilModels;
+    }
+    if (modelConfig?.chairmanModel) {
+      body.chairman_model = modelConfig.chairmanModel;
+    }
+
+    const response = await fetch('/api/council', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify(body),
+    });
 
     if (!response.ok) {
-      throw new Error('Failed to send message');
+      if (response.status === 401) {
+        throw new Error('Unauthorized');
+      }
+      throw new Error('Failed to run council');
     }
 
     const reader = response.body.getReader();
@@ -111,5 +86,40 @@ export const api = {
         }
       }
     }
+  },
+
+  /**
+   * Check if user is authenticated by making a test request.
+   */
+  async checkAuth() {
+    try {
+      await this.getModels();
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /**
+   * Store auth credentials in sessionStorage.
+   */
+  setAuth(password, email) {
+    sessionStorage.setItem('auth_password', password);
+    sessionStorage.setItem('auth_email', email);
+  },
+
+  /**
+   * Clear auth credentials.
+   */
+  clearAuth() {
+    sessionStorage.removeItem('auth_password');
+    sessionStorage.removeItem('auth_email');
+  },
+
+  /**
+   * Check if credentials are stored.
+   */
+  hasStoredAuth() {
+    return !!(sessionStorage.getItem('auth_password') && sessionStorage.getItem('auth_email'));
   },
 };

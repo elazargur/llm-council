@@ -137,7 +137,7 @@
 
 .parsed-ranking ol {
   margin: 8px 0 0 0;
-  padding-left: 24px;
+  padding-inline-start: 24px;
   color: #333;
 }
 
