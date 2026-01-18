@@ -1,13 +1,8 @@
-"""Minimal test API."""
+from http.server import BaseHTTPRequestHandler
 
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/api")
-async def health():
-    return {"status": "ok", "service": "LLM Council API"}
-
-@app.get("/api/test")
-async def test():
-    return {"message": "Python is working!"}
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write('{"status": "ok", "message": "Python works!"}'.encode('utf-8'))
