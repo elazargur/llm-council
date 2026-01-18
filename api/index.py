@@ -28,9 +28,9 @@ ALLOWED_EMAILS = [
     if email.strip()
 ]
 
-# Vercel KV
-KV_URL = os.getenv("KV_REST_API_URL")
-KV_TOKEN = os.getenv("KV_REST_API_TOKEN")
+# Upstash Redis (Vercel KV replacement)
+KV_URL = os.getenv("KV_REST_API_URL") or os.getenv("UPSTASH_REDIS_REST_URL")
+KV_TOKEN = os.getenv("KV_REST_API_TOKEN") or os.getenv("UPSTASH_REDIS_REST_TOKEN")
 
 AVAILABLE_MODELS = [
     "openai/gpt-5.2",
