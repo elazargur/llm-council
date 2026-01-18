@@ -10,7 +10,9 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
-  // Conversation state (in-memory only, no persistence)
+  // Session state
+  const [sessions, setSessions] = useState([]);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -35,6 +37,39 @@ function App() {
     }
   };
 
+  const clearAuthState = () => {
+    api.clearAuth();
+    setIsAuthenticated(false);
+    setMessages([]);
+    setSessions([]);
+    setCurrentSessionId(null);
+  };
+
+  const loadSessions = async () => {
+    try {
+      const data = await api.getSessions();
+      setSessions(data);
+    } catch (error) {
+      console.error('Failed to load sessions:', error);
+      if (error.message === 'Unauthorized') {
+        clearAuthState();
+      }
+    }
+  };
+
+  const loadSession = async (sessionId) => {
+    try {
+      const session = await api.getSession(sessionId);
+      setCurrentSessionId(session.id);
+      setMessages(session.messages || []);
+    } catch (error) {
+      console.error('Failed to load session:', error);
+      if (error.message === 'Unauthorized') {
+        clearAuthState();
+      }
+    }
+  };
+
   // Check if already authenticated on mount
   useEffect(() => {
     const checkExistingAuth = async () => {
@@ -43,6 +78,7 @@ function App() {
         if (isValid) {
           setIsAuthenticated(true);
           loadModels();
+          loadSessions();
         } else {
           api.clearAuth();
         }
@@ -50,24 +86,75 @@ function App() {
       setIsCheckingAuth(false);
     };
     checkExistingAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleLogin = () => {
     setIsAuthenticated(true);
     loadModels();
+    loadSessions();
   };
 
   const handleLogout = () => {
-    api.clearAuth();
-    setIsAuthenticated(false);
-    setMessages([]);
+    clearAuthState();
   };
 
-  const handleNewConversation = () => {
-    setMessages([]);
+  const handleNewConversation = async () => {
+    try {
+      const session = await api.createSession();
+      setSessions((prev) => [
+        { id: session.id, title: session.title, created_at: session.created_at, message_count: 0 },
+        ...prev,
+      ]);
+      setCurrentSessionId(session.id);
+      setMessages([]);
+    } catch (error) {
+      console.error('Failed to create session:', error);
+      if (error.message === 'Unauthorized') {
+        clearAuthState();
+      }
+    }
+  };
+
+  const handleSelectConversation = async (sessionId) => {
+    if (sessionId === currentSessionId) return;
+    await loadSession(sessionId);
+  };
+
+  const handleDeleteConversation = async (sessionId) => {
+    try {
+      await api.deleteSession(sessionId);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        setMessages([]);
+      }
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+      if (error.message === 'Unauthorized') {
+        clearAuthState();
+      }
+    }
   };
 
   const handleSendMessage = async (content) => {
+    // Create session if none exists
+    let sessionId = currentSessionId;
+    if (!sessionId) {
+      try {
+        const session = await api.createSession();
+        sessionId = session.id;
+        setSessions((prev) => [
+          { id: session.id, title: session.title, created_at: session.created_at, message_count: 0 },
+          ...prev,
+        ]);
+        setCurrentSessionId(sessionId);
+      } catch (error) {
+        console.error('Failed to create session:', error);
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
       // Add user message to UI
@@ -97,7 +184,7 @@ function App() {
         chairmanModel: selectedChairmanModel,
       };
 
-      await api.runCouncilStream(content, modelConfig, (eventType, event) => {
+      await api.runCouncilStream(content, modelConfig, sessionId, (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
             setMessages((prev) => {
@@ -159,6 +246,8 @@ function App() {
 
           case 'complete':
             setIsLoading(false);
+            // Refresh sessions to get updated title
+            loadSessions();
             break;
 
           case 'error':
@@ -173,7 +262,7 @@ function App() {
     } catch (error) {
       console.error('Failed to send message:', error);
       if (error.message === 'Unauthorized') {
-        handleLogout();
+        clearAuthState();
         return;
       }
       // Remove optimistic messages on error
@@ -198,17 +287,18 @@ function App() {
 
   // Create a conversation object for ChatInterface compatibility
   const currentConversation = {
-    id: 'session',
+    id: currentSessionId || 'new',
     messages: messages,
   };
 
   return (
     <div className="app">
       <Sidebar
-        conversations={[]}
-        currentConversationId="session"
-        onSelectConversation={() => {}}
+        conversations={sessions}
+        currentConversationId={currentSessionId}
+        onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
+        onDeleteConversation={handleDeleteConversation}
         availableModels={availableModels}
         selectedCouncilModels={selectedCouncilModels}
         selectedChairmanModel={selectedChairmanModel}

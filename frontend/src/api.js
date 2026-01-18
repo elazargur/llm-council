@@ -36,16 +36,20 @@ export const api = {
    * Run the council with streaming updates.
    * @param {string} content - The user's query
    * @param {object} modelConfig - Model configuration { councilModels, chairmanModel }
+   * @param {string} sessionId - Optional session ID to save conversation to
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @returns {Promise<void>}
    */
-  async runCouncilStream(content, modelConfig, onEvent) {
+  async runCouncilStream(content, modelConfig, sessionId, onEvent) {
     const body = { content };
     if (modelConfig?.councilModels?.length > 0) {
       body.council_models = modelConfig.councilModels;
     }
     if (modelConfig?.chairmanModel) {
       body.chairman_model = modelConfig.chairmanModel;
+    }
+    if (sessionId) {
+      body.session_id = sessionId;
     }
 
     const response = await fetch('/api/council', {
@@ -121,5 +125,66 @@ export const api = {
    */
   hasStoredAuth() {
     return !!(sessionStorage.getItem('auth_password') && sessionStorage.getItem('auth_email'));
+  },
+
+  // ============== SESSION METHODS ==============
+
+  /**
+   * Get list of user's sessions (summary only).
+   */
+  async getSessions() {
+    const response = await fetch('/api/sessions', {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      if (response.status === 401) throw new Error('Unauthorized');
+      throw new Error('Failed to get sessions');
+    }
+    return response.json();
+  },
+
+  /**
+   * Get a single session with full messages.
+   */
+  async getSession(sessionId) {
+    const response = await fetch(`/api/sessions/${sessionId}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      if (response.status === 401) throw new Error('Unauthorized');
+      if (response.status === 404) throw new Error('Session not found');
+      throw new Error('Failed to get session');
+    }
+    return response.json();
+  },
+
+  /**
+   * Create a new session.
+   */
+  async createSession() {
+    const response = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      if (response.status === 401) throw new Error('Unauthorized');
+      throw new Error('Failed to create session');
+    }
+    return response.json();
+  },
+
+  /**
+   * Delete a session.
+   */
+  async deleteSession(sessionId) {
+    const response = await fetch(`/api/sessions/${sessionId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      if (response.status === 401) throw new Error('Unauthorized');
+      throw new Error('Failed to delete session');
+    }
+    return response.json();
   },
 };

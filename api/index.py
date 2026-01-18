@@ -5,7 +5,10 @@ import json
 import os
 import re
 import asyncio
-from urllib.parse import urlparse, parse_qs
+import uuid
+import urllib.request
+from datetime import datetime
+from urllib.parse import urlparse
 from collections import defaultdict
 
 # Try to import httpx, handle if not available
@@ -24,6 +27,10 @@ ALLOWED_EMAILS = [
     for email in os.getenv("ALLOWED_EMAILS", "").split(",")
     if email.strip()
 ]
+
+# Vercel KV
+KV_URL = os.getenv("KV_REST_API_URL")
+KV_TOKEN = os.getenv("KV_REST_API_TOKEN")
 
 AVAILABLE_MODELS = [
     "openai/gpt-5.2",
@@ -47,6 +54,37 @@ COUNCIL_MODELS = [
 CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# ============== VERCEL KV ==============
+
+def kv_get(key):
+    if not KV_URL or not KV_TOKEN:
+        return None
+    try:
+        req = urllib.request.Request(f"{KV_URL}/get/{key}")
+        req.add_header("Authorization", f"Bearer {KV_TOKEN}")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            result = data.get("result")
+            return json.loads(result) if result else None
+    except Exception as e:
+        print(f"KV get error: {e}")
+        return None
+
+def kv_set(key, value):
+    if not KV_URL or not KV_TOKEN:
+        return False
+    try:
+        url = f"{KV_URL}/set/{key}"
+        data = json.dumps(value).encode()
+        req = urllib.request.Request(url, data=data, method="POST")
+        req.add_header("Authorization", f"Bearer {KV_TOKEN}")
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+    except Exception as e:
+        print(f"KV set error: {e}")
+        return False
+
 # ============== AUTH ==============
 
 def check_auth(password, email):
@@ -61,6 +99,64 @@ def check_auth(password, email):
     if email.strip().lower() not in ALLOWED_EMAILS:
         return False, "Email not authorized"
     return True, ""
+
+# ============== SESSIONS ==============
+
+def get_user_sessions(email):
+    key = f"sessions:{email.lower()}"
+    sessions = kv_get(key)
+    return sessions if sessions else []
+
+def save_user_sessions(email, sessions):
+    key = f"sessions:{email.lower()}"
+    return kv_set(key, sessions)
+
+def create_session(email, title="New Conversation"):
+    sessions = get_user_sessions(email)
+    new_session = {
+        "id": str(uuid.uuid4()),
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "title": title,
+        "messages": []
+    }
+    sessions.insert(0, new_session)  # Newest first
+    save_user_sessions(email, sessions)
+    return new_session
+
+def get_session(email, session_id):
+    sessions = get_user_sessions(email)
+    for s in sessions:
+        if s["id"] == session_id:
+            return s
+    return None
+
+def update_session(email, session_id, updates):
+    sessions = get_user_sessions(email)
+    for i, s in enumerate(sessions):
+        if s["id"] == session_id:
+            sessions[i].update(updates)
+            save_user_sessions(email, sessions)
+            return sessions[i]
+    return None
+
+def add_message_to_session(email, session_id, message):
+    sessions = get_user_sessions(email)
+    for i, s in enumerate(sessions):
+        if s["id"] == session_id:
+            sessions[i]["messages"].append(message)
+            # Update title from first user message if still default
+            if sessions[i]["title"] == "New Conversation" and message.get("role") == "user":
+                content = message.get("content", "")
+                sessions[i]["title"] = content[:50] + ("..." if len(content) > 50 else "")
+            save_user_sessions(email, sessions)
+            return True
+    return False
+
+def delete_session(email, session_id):
+    sessions = get_user_sessions(email)
+    sessions = [s for s in sessions if s["id"] != session_id]
+    save_user_sessions(email, sessions)
+    return True
 
 # ============== OPENROUTER ==============
 
@@ -189,15 +285,19 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(f"data: {json.dumps(event)}\n\n".encode())
         self.wfile.flush()
 
-    def check_auth(self):
+    def get_auth(self):
         password = self.headers.get('X-Auth-Password', '')
         email = self.headers.get('X-Auth-Email', '')
+        return password, email
+
+    def check_auth(self):
+        password, email = self.get_auth()
         return check_auth(password, email)
 
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Auth-Password, X-Auth-Email')
         self.end_headers()
 
@@ -220,10 +320,47 @@ class handler(BaseHTTPRequestHandler):
             })
             return
 
+        if path == '/api/sessions':
+            valid, error = self.check_auth()
+            if not valid:
+                self.send_json({"error": error}, 401)
+                return
+            _, email = self.get_auth()
+            sessions = get_user_sessions(email)
+            # Return summary only (no full messages)
+            summary = [{"id": s["id"], "title": s["title"], "created_at": s["created_at"], "message_count": len(s["messages"])} for s in sessions]
+            self.send_json(summary)
+            return
+
+        # GET /api/sessions/{id}
+        if path.startswith('/api/sessions/'):
+            valid, error = self.check_auth()
+            if not valid:
+                self.send_json({"error": error}, 401)
+                return
+            _, email = self.get_auth()
+            session_id = path.split('/api/sessions/')[1]
+            session = get_session(email, session_id)
+            if session:
+                self.send_json(session)
+            else:
+                self.send_json({"error": "Session not found"}, 404)
+            return
+
         self.send_json({"error": "Not found"}, 404)
 
     def do_POST(self):
         path = urlparse(self.path).path
+
+        if path == '/api/sessions':
+            valid, error = self.check_auth()
+            if not valid:
+                self.send_json({"error": error}, 401)
+                return
+            _, email = self.get_auth()
+            session = create_session(email)
+            self.send_json(session)
+            return
 
         if path == '/api/council':
             valid, error = self.check_auth()
@@ -231,6 +368,7 @@ class handler(BaseHTTPRequestHandler):
                 self.send_json({"error": error}, 401)
                 return
 
+            _, email = self.get_auth()
             content_length = int(self.headers.get('Content-Length', 0))
             body = json.loads(self.rfile.read(content_length)) if content_length else {}
 
@@ -239,6 +377,7 @@ class handler(BaseHTTPRequestHandler):
                 self.send_json({"error": "content required"}, 400)
                 return
 
+            session_id = body.get('session_id')
             council_models = body.get('council_models', COUNCIL_MODELS)
             chairman = body.get('chairman_model', CHAIRMAN_MODEL)
 
@@ -249,7 +388,7 @@ class handler(BaseHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
 
-            # Run council
+            # Run council and save results
             async def run():
                 self.send_sse("stage1_start")
                 s1 = await stage1_collect_responses(user_query, council_models)
@@ -268,9 +407,40 @@ class handler(BaseHTTPRequestHandler):
                 s3 = await stage3_synthesize(user_query, s1, s2, chairman)
                 self.send_sse("stage3_complete", s3)
 
+                # Save to session if session_id provided
+                if session_id:
+                    # Add user message
+                    add_message_to_session(email, session_id, {"role": "user", "content": user_query})
+                    # Add assistant message with all stages
+                    assistant_msg = {
+                        "role": "assistant",
+                        "stage1": s1,
+                        "stage2": s2,
+                        "stage3": s3,
+                        "metadata": {"label_to_model": label_map, "aggregate_rankings": agg}
+                    }
+                    add_message_to_session(email, session_id, assistant_msg)
+
                 self.send_sse("complete")
 
             asyncio.run(run())
+            return
+
+        self.send_json({"error": "Not found"}, 404)
+
+    def do_DELETE(self):
+        path = urlparse(self.path).path
+
+        # DELETE /api/sessions/{id}
+        if path.startswith('/api/sessions/'):
+            valid, error = self.check_auth()
+            if not valid:
+                self.send_json({"error": error}, 401)
+                return
+            _, email = self.get_auth()
+            session_id = path.split('/api/sessions/')[1]
+            delete_session(email, session_id)
+            self.send_json({"success": True})
             return
 
         self.send_json({"error": "Not found"}, 404)
