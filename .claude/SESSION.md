@@ -1,3 +1,29 @@
+## 2026-01-18 | Added Session Persistence with Upstash Redis
+
+**Goal**: Save user conversation history so sessions persist across page refreshes.
+
+**Done**:
+- Added Vercel KV/Upstash Redis client to api/index.py using urllib.request
+- Added session endpoints: GET/POST /api/sessions, GET/DELETE /api/sessions/{id}
+- Modified /api/council to accept session_id and auto-save conversations
+- Frontend: Added session API methods to api.js
+- Frontend: Sessions load on login, auto-create on first message, show in sidebar
+- Frontend: Conversation list with titles, dates, message counts, and delete buttons
+- Set up Upstash for Redis via Vercel Marketplace (KV moved to marketplace)
+
+**Pending**:
+- None
+
+**Decisions**:
+- Used Upstash for Redis (Vercel KV replacement via Marketplace)
+- Store full conversations per user keyed by email: `sessions:{email}`
+- Auto-generate title from first 50 chars of first user message
+- Code supports both old KV_REST_API_* and new UPSTASH_REDIS_REST_* env var names
+
+**Changed**: [api/index.py, frontend/src/api.js, frontend/src/App.jsx, frontend/src/components/Sidebar.jsx, frontend/src/components/Sidebar.css]
+
+---
+
 ## 2026-01-18 | Added Hebrew RTL Support
 
 **Goal**: Add Hebrew language support with automatic right-to-left text direction.
