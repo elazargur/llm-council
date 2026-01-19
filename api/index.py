@@ -167,7 +167,7 @@ async def query_model(model, messages, timeout=120.0):
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
     }
-    payload = {"model": model, "messages": messages}
+    payload = {"model": model, "messages": messages, "plugins": [{"id": "web"}]}
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(OPENROUTER_API_URL, headers=headers, json=payload)
