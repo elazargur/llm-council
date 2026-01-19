@@ -160,14 +160,16 @@ def delete_session(email, session_id):
 
 # ============== OPENROUTER ==============
 
-async def query_model(model, messages, timeout=120.0):
+async def query_model(model, messages, timeout=120.0, web_search=False):
     if not HTTPX_AVAILABLE:
         return None
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
     }
-    payload = {"model": model, "messages": messages, "plugins": [{"id": "web"}]}
+    payload = {"model": model, "messages": messages}
+    if web_search:
+        payload["plugins"] = [{"id": "web"}]
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(OPENROUTER_API_URL, headers=headers, json=payload)
@@ -179,8 +181,8 @@ async def query_model(model, messages, timeout=120.0):
         print(f"Error querying {model}: {e}")
         return None
 
-async def query_models_parallel(models, messages):
-    tasks = [query_model(model, messages) for model in models]
+async def query_models_parallel(models, messages, web_search=False):
+    tasks = [query_model(model, messages, web_search=web_search) for model in models]
     responses = await asyncio.gather(*tasks)
     return {model: resp for model, resp in zip(models, responses)}
 
@@ -189,7 +191,7 @@ async def query_models_parallel(models, messages):
 async def stage1_collect_responses(user_query, models=None):
     models_to_use = models or COUNCIL_MODELS
     messages = [{"role": "user", "content": user_query}]
-    responses = await query_models_parallel(models_to_use, messages)
+    responses = await query_models_parallel(models_to_use, messages, web_search=True)
     return [{"model": m, "response": r.get('content', '')} for m, r in responses.items() if r]
 
 async def stage2_collect_rankings(user_query, stage1_results, models=None):
