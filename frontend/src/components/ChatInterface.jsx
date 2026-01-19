@@ -37,13 +37,53 @@ export default function ChatInterface({
     }
   };
 
+  const WelcomeGuide = () => (
+    <div className="empty-state">
+      <h2>Welcome to LLM Council</h2>
+      <p className="subtitle">A deliberation system where multiple AI models collaborate to answer your question</p>
+
+      <div className="guide-section">
+        <h3>How it works</h3>
+        <div className="stages-overview">
+          <div className="stage-item">
+            <span className="stage-number">1</span>
+            <span>Each model answers independently (with web access)</span>
+          </div>
+          <div className="stage-item">
+            <span className="stage-number">2</span>
+            <span>Models anonymously rank each other's responses</span>
+          </div>
+          <div className="stage-item">
+            <span className="stage-number">3</span>
+            <span>Chairman synthesizes the best final answer</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="guide-section">
+        <h3>Best practices</h3>
+        <ul className="tips-list">
+          <li><strong>One question per session</strong> — This isn't a chat. Include all context upfront.</li>
+          <li><strong>Be specific</strong> — "Compare React vs Vue for a small team" beats "What frontend framework?"</li>
+          <li><strong>Ask complex questions</strong> — The council shines on nuanced topics with multiple valid perspectives.</li>
+        </ul>
+      </div>
+
+      <div className="guide-section">
+        <h3>Great questions for the council</h3>
+        <ul className="examples-list">
+          <li>"What are the tradeoffs between microservices and monolith for a 5-person startup?"</li>
+          <li>"Analyze the latest developments in [topic] and summarize key takeaways"</li>
+          <li>"I'm deciding between X and Y for [use case]. What should I consider?"</li>
+        </ul>
+      </div>
+    </div>
+  );
+
   if (!conversation) {
     return (
       <div className="chat-interface">
-        <div className="empty-state">
-          <h2>Welcome to LLM Council</h2>
-          <p>Create a new conversation to get started</p>
-        </div>
+        <WelcomeGuide />
       </div>
     );
   }
@@ -52,10 +92,7 @@ export default function ChatInterface({
     <div className="chat-interface">
       <div className="messages-container">
         {conversation.messages.length === 0 ? (
-          <div className="empty-state">
-            <h2>Start a conversation</h2>
-            <p>Ask a question to consult the LLM Council</p>
-          </div>
+          <WelcomeGuide />
         ) : (
           conversation.messages.map((msg, index) => (
             <div key={index} className="message-group">
