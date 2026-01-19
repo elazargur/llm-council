@@ -1,3 +1,24 @@
+## 2026-01-19 | Added Web Access for Council Models
+
+**Goal**: Enable LLM council models to search the web when answering questions.
+
+**Done**:
+- Added OpenRouter web search plugin to council queries
+- Fixed bug: web search was running on all stages, causing Stage 2/3 to hang
+- Now only Stage 1 uses web search (answering user's question)
+- Added user guide/welcome screen explaining how to use the council
+
+**Pending**:
+- None
+
+**Decisions**:
+- Used OpenRouter's `plugins: [{"id": "web"}]` parameter (simplest approach)
+- Web search only on Stage 1 to avoid unnecessary latency/cost on ranking and synthesis stages
+
+**Changed**: [api/index.py, frontend/src/components/ChatInterface.jsx, frontend/src/components/ChatInterface.css]
+
+---
+
 ## 2026-01-18 | Added Session Persistence with Upstash Redis
 
 **Goal**: Save user conversation history so sessions persist across page refreshes.
