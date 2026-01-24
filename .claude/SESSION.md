@@ -1,3 +1,26 @@
+## 2026-01-24 | Added Per-Model Status Tracking
+
+**Goal**: Debug council getting stuck and add visibility into which models respond/fail.
+
+**Done**:
+- Validated all 4 default models working on OpenRouter
+- Added detailed backend logging for each model request (start, success, timeout, error)
+- Added per-model SSE events so UI updates as each model completes
+- UI now shows real-time status indicators: pending (yellow), success (green), failed (red)
+- Added error display in UI when council fails
+- Fixed pre-existing lint error: moved WelcomeGuide component outside render function
+
+**Pending**:
+- None
+
+**Decisions**:
+- Send `model_status` events incrementally rather than waiting for all models to finish
+- Track status per-stage (resets when moving to Stage 2, Stage 3)
+
+**Changed**: [api/index.py, frontend/src/App.jsx, frontend/src/components/ChatInterface.jsx, frontend/src/components/ChatInterface.css]
+
+---
+
 ## 2026-01-22 | Crafted AI Engineering Syllabus Prompt — Helped craft an optimized prompt to generate an AI Engineering mastery roadmap via the council. No pending items.
 
 ---
