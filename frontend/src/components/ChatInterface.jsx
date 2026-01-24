@@ -5,39 +5,9 @@ import Stage2 from './Stage2';
 import Stage3 from './Stage3';
 import './ChatInterface.css';
 
-export default function ChatInterface({
-  conversation,
-  onSendMessage,
-  isLoading,
-}) {
-  const [input, setInput] = useState('');
-  const messagesEndRef = useRef(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [conversation]);
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (input.trim() && !isLoading) {
-      onSendMessage(input);
-      setInput('');
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    // Submit on Enter (without Shift)
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
-  };
-
-  const WelcomeGuide = () => (
+// Moved outside component to avoid recreating on each render
+function WelcomeGuide() {
+  return (
     <div className="empty-state">
       <h2>Welcome to LLM Council</h2>
       <p className="subtitle">A deliberation system where multiple AI models collaborate to answer your question</p>
@@ -79,6 +49,39 @@ export default function ChatInterface({
       </div>
     </div>
   );
+}
+
+export default function ChatInterface({
+  conversation,
+  onSendMessage,
+  isLoading,
+}) {
+  const [input, setInput] = useState('');
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [conversation]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (input.trim() && !isLoading) {
+      onSendMessage(input);
+      setInput('');
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    // Submit on Enter (without Shift)
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
 
   if (!conversation) {
     return (
@@ -112,8 +115,24 @@ export default function ChatInterface({
                   {/* Stage 1 */}
                   {msg.loading?.stage1 && (
                     <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 1: Collecting individual responses...</span>
+                      <div className="stage-loading-header">
+                        <div className="spinner"></div>
+                        <span>Running Stage 1: Collecting individual responses...</span>
+                      </div>
+                      {msg.modelStatus && Object.keys(msg.modelStatus).length > 0 && (
+                        <div className="model-status-list">
+                          {Object.entries(msg.modelStatus).map(([model, status]) => (
+                            <div key={model} className={`model-status model-status-${status}`}>
+                              <span className="status-indicator">
+                                {status === 'pending' && '⏳'}
+                                {status === 'success' && '✅'}
+                                {status === 'failed' && '❌'}
+                              </span>
+                              <span className="model-name">{model.split('/')[1] || model}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   {msg.stage1 && <Stage1 responses={msg.stage1} />}
@@ -121,8 +140,24 @@ export default function ChatInterface({
                   {/* Stage 2 */}
                   {msg.loading?.stage2 && (
                     <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 2: Peer rankings...</span>
+                      <div className="stage-loading-header">
+                        <div className="spinner"></div>
+                        <span>Running Stage 2: Peer rankings...</span>
+                      </div>
+                      {msg.modelStatus && Object.keys(msg.modelStatus).length > 0 && (
+                        <div className="model-status-list">
+                          {Object.entries(msg.modelStatus).map(([model, status]) => (
+                            <div key={model} className={`model-status model-status-${status}`}>
+                              <span className="status-indicator">
+                                {status === 'pending' && '⏳'}
+                                {status === 'success' && '✅'}
+                                {status === 'failed' && '❌'}
+                              </span>
+                              <span className="model-name">{model.split('/')[1] || model}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   {msg.stage2 && (
@@ -136,11 +171,35 @@ export default function ChatInterface({
                   {/* Stage 3 */}
                   {msg.loading?.stage3 && (
                     <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 3: Final synthesis...</span>
+                      <div className="stage-loading-header">
+                        <div className="spinner"></div>
+                        <span>Running Stage 3: Final synthesis...</span>
+                      </div>
+                      {msg.modelStatus && Object.keys(msg.modelStatus).length > 0 && (
+                        <div className="model-status-list">
+                          {Object.entries(msg.modelStatus).map(([model, status]) => (
+                            <div key={model} className={`model-status model-status-${status}`}>
+                              <span className="status-indicator">
+                                {status === 'pending' && '⏳'}
+                                {status === 'success' && '✅'}
+                                {status === 'failed' && '❌'}
+                              </span>
+                              <span className="model-name">{model.split('/')[1] || model}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
+
+                  {/* Error display */}
+                  {msg.error && (
+                    <div className="stage-error">
+                      <span className="error-icon">⚠️</span>
+                      <span>{msg.error}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

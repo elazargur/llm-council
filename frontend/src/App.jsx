@@ -173,6 +173,7 @@ function App() {
           stage2: false,
           stage3: false,
         },
+        modelStatus: {}, // Track per-model status: { model: 'pending' | 'success' | 'failed' }
       };
 
       // Add the partial assistant message
@@ -191,6 +192,27 @@ function App() {
               const messages = [...prev];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage1 = true;
+              // Initialize all models as pending
+              if (event.data?.models) {
+                lastMsg.modelStatus = {};
+                event.data.models.forEach((m) => {
+                  lastMsg.modelStatus[m] = 'pending';
+                });
+              }
+              return messages;
+            });
+            break;
+
+          case 'model_status':
+            setMessages((prev) => {
+              const messages = [...prev];
+              const lastMsg = messages[messages.length - 1];
+              if (event.data?.model) {
+                lastMsg.modelStatus = {
+                  ...lastMsg.modelStatus,
+                  [event.data.model]: event.data.status,
+                };
+              }
               return messages;
             });
             break;
@@ -210,6 +232,13 @@ function App() {
               const messages = [...prev];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage2 = true;
+              // Reset model status for stage 2
+              if (event.data?.models) {
+                lastMsg.modelStatus = {};
+                event.data.models.forEach((m) => {
+                  lastMsg.modelStatus[m] = 'pending';
+                });
+              }
               return messages;
             });
             break;
@@ -230,6 +259,10 @@ function App() {
               const messages = [...prev];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage3 = true;
+              // Show chairman model as pending
+              if (event.data?.model) {
+                lastMsg.modelStatus = { [event.data.model]: 'pending' };
+              }
               return messages;
             });
             break;
@@ -253,6 +286,14 @@ function App() {
           case 'error':
             console.error('Stream error:', event.message || event.data?.message);
             setIsLoading(false);
+            // Show error to user
+            setMessages((prev) => {
+              const messages = [...prev];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.error = event.message || event.data?.message || 'Unknown error';
+              lastMsg.loading = { stage1: false, stage2: false, stage3: false };
+              return messages;
+            });
             break;
 
           default:

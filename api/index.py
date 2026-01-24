@@ -162,6 +162,7 @@ def delete_session(email, session_id):
 
 async def query_model(model, messages, timeout=120.0, web_search=False):
     if not HTTPX_AVAILABLE:
+        print(f"[{model}] HTTPX not available")
         return None
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -171,30 +172,50 @@ async def query_model(model, messages, timeout=120.0, web_search=False):
     if web_search:
         payload["plugins"] = [{"id": "web"}]
     try:
+        print(f"[{model}] Starting request (web_search={web_search})...")
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(OPENROUTER_API_URL, headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
             message = data['choices'][0]['message']
-            return {'content': message.get('content', '')}
+            content = message.get('content', '')
+            print(f"[{model}] ✅ Success ({len(content)} chars)")
+            return {'content': content}
+    except httpx.TimeoutException:
+        print(f"[{model}] ❌ TIMEOUT after {timeout}s")
+        return None
+    except httpx.HTTPStatusError as e:
+        print(f"[{model}] ❌ HTTP {e.response.status_code}: {e.response.text[:200]}")
+        return None
     except Exception as e:
-        print(f"Error querying {model}: {e}")
+        print(f"[{model}] ❌ Error: {type(e).__name__}: {e}")
         return None
 
-async def query_models_parallel(models, messages, web_search=False):
-    tasks = [query_model(model, messages, web_search=web_search) for model in models]
-    responses = await asyncio.gather(*tasks)
-    return {model: resp for model, resp in zip(models, responses)}
+async def query_models_parallel(models, messages, web_search=False, on_model_complete=None):
+    """Query multiple models in parallel, with optional per-model callback."""
+    results = {}
+
+    async def query_with_callback(model):
+        result = await query_model(model, messages, web_search=web_search)
+        status = "success" if result else "failed"
+        results[model] = result
+        if on_model_complete:
+            on_model_complete(model, status, result)
+        return result
+
+    tasks = [query_with_callback(model) for model in models]
+    await asyncio.gather(*tasks)
+    return results
 
 # ============== COUNCIL ==============
 
-async def stage1_collect_responses(user_query, models=None):
+async def stage1_collect_responses(user_query, models=None, on_model_complete=None):
     models_to_use = models or COUNCIL_MODELS
     messages = [{"role": "user", "content": user_query}]
-    responses = await query_models_parallel(models_to_use, messages, web_search=True)
+    responses = await query_models_parallel(models_to_use, messages, web_search=True, on_model_complete=on_model_complete)
     return [{"model": m, "response": r.get('content', '')} for m, r in responses.items() if r]
 
-async def stage2_collect_rankings(user_query, stage1_results, models=None):
+async def stage2_collect_rankings(user_query, stage1_results, models=None, on_model_complete=None):
     models_to_use = models or COUNCIL_MODELS
     labels = [chr(65 + i) for i in range(len(stage1_results))]
     label_to_model = {f"Response {l}": r['model'] for l, r in zip(labels, stage1_results)}
@@ -212,7 +233,7 @@ FINAL RANKING:
 ..."""
 
     messages = [{"role": "user", "content": ranking_prompt}]
-    responses = await query_models_parallel(models_to_use, messages)
+    responses = await query_models_parallel(models_to_use, messages, on_model_complete=on_model_complete)
 
     results = []
     for model, resp in responses.items():
@@ -392,38 +413,62 @@ class handler(BaseHTTPRequestHandler):
 
             # Run council and save results
             async def run():
-                self.send_sse("stage1_start")
-                s1 = await stage1_collect_responses(user_query, council_models)
-                self.send_sse("stage1_complete", s1)
+                try:
+                    # Stage 1: Collect responses with per-model status updates
+                    self.send_sse("stage1_start", {"models": council_models})
 
-                if not s1:
-                    self.send_sse("error", {"message": "All models failed"})
-                    return
+                    def on_model_complete(model, status, result):
+                        self.send_sse("model_status", {
+                            "model": model,
+                            "status": status,
+                            "stage": 1
+                        })
 
-                self.send_sse("stage2_start")
-                s2, label_map = await stage2_collect_rankings(user_query, s1, council_models)
-                agg = calc_aggregate(s2, label_map)
-                self.send_sse("stage2_complete", s2, {"label_to_model": label_map, "aggregate_rankings": agg})
+                    s1 = await stage1_collect_responses(user_query, council_models, on_model_complete=on_model_complete)
+                    self.send_sse("stage1_complete", s1)
 
-                self.send_sse("stage3_start")
-                s3 = await stage3_synthesize(user_query, s1, s2, chairman)
-                self.send_sse("stage3_complete", s3)
+                    if not s1:
+                        self.send_sse("error", {"message": "All models failed to respond in Stage 1"})
+                        return
 
-                # Save to session if session_id provided
-                if session_id:
-                    # Add user message
-                    add_message_to_session(email, session_id, {"role": "user", "content": user_query})
-                    # Add assistant message with all stages
-                    assistant_msg = {
-                        "role": "assistant",
-                        "stage1": s1,
-                        "stage2": s2,
-                        "stage3": s3,
-                        "metadata": {"label_to_model": label_map, "aggregate_rankings": agg}
-                    }
-                    add_message_to_session(email, session_id, assistant_msg)
+                    # Stage 2: Collect rankings with per-model status updates
+                    self.send_sse("stage2_start", {"models": council_models})
 
-                self.send_sse("complete")
+                    def on_ranking_complete(model, status, result):
+                        self.send_sse("model_status", {
+                            "model": model,
+                            "status": status,
+                            "stage": 2
+                        })
+
+                    s2, label_map = await stage2_collect_rankings(user_query, s1, council_models, on_model_complete=on_ranking_complete)
+                    agg = calc_aggregate(s2, label_map)
+                    self.send_sse("stage2_complete", s2, {"label_to_model": label_map, "aggregate_rankings": agg})
+
+                    # Stage 3: Chairman synthesis
+                    self.send_sse("stage3_start", {"model": chairman})
+                    s3 = await stage3_synthesize(user_query, s1, s2, chairman)
+                    self.send_sse("stage3_complete", s3)
+
+                    # Save to session if session_id provided
+                    if session_id:
+                        # Add user message
+                        add_message_to_session(email, session_id, {"role": "user", "content": user_query})
+                        # Add assistant message with all stages
+                        assistant_msg = {
+                            "role": "assistant",
+                            "stage1": s1,
+                            "stage2": s2,
+                            "stage3": s3,
+                            "metadata": {"label_to_model": label_map, "aggregate_rankings": agg}
+                        }
+                        add_message_to_session(email, session_id, assistant_msg)
+
+                    self.send_sse("complete")
+
+                except Exception as e:
+                    print(f"Council error: {type(e).__name__}: {e}")
+                    self.send_sse("error", {"message": f"Council error: {str(e)}"})
 
             asyncio.run(run())
             return
